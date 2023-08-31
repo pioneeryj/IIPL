@@ -6,78 +6,51 @@ from torchvision import datasets, transforms, models
 from PIL import Image
 import os
 import numpy as np
-import zipfile
 import torch.nn as nn
 import torchvision.models as models
 import torch.optim as optim
-from CIFAR import train_loader, custom_CIFAR10
+import custom_dataset,data_loader,model,engine
+from model import model_build
+from data_loader import load_data
+from custom_dataset import custom_CIFAR10
+import utils
+from utils import save_model
 
-# model training
-model_res = models.resnet18()
+# Setup hyperparameters
+NUM_EPOCHS = 5
+BATCH_SIZE = 32
+HIDDEN_UNITS = 10
+LEARNING_RATE = 0.05
 
-# Simple Learning Rate Scheduler
-def lr_scheduler(optimizer, epoch):
-    lr = learning_rate
-    if epoch >= 50:
-        lr /= 10
-    if epoch >= 100:
-        lr /= 10
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
+# Setup directories
+train_dir = "C:/Users/pione/Desktop/IIPL/CIFAR/cifar10/cifar10/train"
+test_dir = "C:/Users/pione/Desktop/IIPL/CIFAR/cifar10/cifar10/test"
 
-# Xavier
-def init_weights(m):
-    if isinstance(m, nn.Linear):
-        torch.nn.init.xavier_uniform(m.weight)
-        m.bias.data.fill_(0.01)
+# Setup target device
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model_res.apply(init_weights)
-#device='cuda'
-# 서버를 사용한다면 번호를 지정
-#model_res = model_res.to(device)
+# Create transforms
+data_transform=transforms.Compose([transforms.ToTensor(),transforms.Resize(256),
+    transforms.CenterCrop(224),transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
 
-learning_rate = 0.1
-num_epoch = 50
-model_name = 'res_model.pth'
+train_dataloader, test_dataloader=data_loader.load_data(train_dir=train_dir, test_dir=test_dir, data_transform=data_transform, batch_size=BATCH_SIZE)
 
-# loss 함수
+# model
+model_res = model.model_build().to(device)
+
+#set loss and optimizer
 loss_fn = nn.CrossEntropyLoss()
-# optimizer
-optimizer = optim.SGD(model_res.parameters(), lr=learning_rate, momentum=0.9, weight_decay=0.0001)
+optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.9, weight_decay=0.0001)
 
-train_loss = 0
-valid_loss = 0
-correct = 0
-total_cnt = 0
-best_acc = 0
+engine.train(model=model_res, train_dataloader=train_dataloader,
+             test_dataloader=test_dataloader, loss_fn=loss_fn,
+             optimizer=optimizer, epochs=NUM_EPOCHS, device=device)
 
-# Train
-for epoch in range(num_epoch):
-    print(f"====== { epoch+1} epoch of { num_epoch } ======")
-    model_res.train()
-    lr_scheduler(optimizer, epoch)
-    train_loss = 0
-    valid_loss = 0
-    correct = 0
-    total_cnt = 0
-    for step, batch in enumerate(train_loader):
-        #  input and target
-        batch[0], batch[1] = batch[0], batch[1]
-        optimizer.zero_grad()
+# save the model
+target_dir="C:/Users/pione/Desktop/IIPL/CIFAR_classification"
+model_name="resnet50_for_CIFAR_classification.pth"
+utils.save_model(model=model_res, target_dir=target_dir,
+                 model_name=model_name)
 
-        logits = model_res(batch[0])
-        loss = loss_fn(logits, batch[1])
-        loss.backward()
-
-        optimizer.step()
-        train_loss += loss.item()
-        _, predict = logits.max(1)
-
-        total_cnt += batch[1].size(0)
-        correct +=  predict.eq(batch[1]).sum().item()
-
-        if step % 100 == 0 and step != 0:
-            print(f"\n====== { step } Step of { len(train_loader) } ======")
-            print(f"Train Acc : { correct / total_cnt }")
-            print(f"Train Loss : { loss.item() / batch[1].size(0) }")
-
+# model load
+model_res.load_state_dict(torch.load(target_dir/model_name))
